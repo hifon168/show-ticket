@@ -20,6 +20,36 @@ const { syncPoster, md5 } = require('./imageSyncService');
 const { generatePoster } = require('./posterService');
 const { httpJson } = require('../utils/http');
 
+/** 是否为瞬时断连错误（云数据库休眠/网络抖动会出现） */
+function isTransientDbError(e) {
+  const msg = String((e && e.message) || '');
+  return /ECONNREFUSED|ETIMEDOUT|ETIME|ECONNRESET|PROTOCOL_CONNECTION_LOST|EPIPE|socket disconnected|Connection lost/i.test(msg);
+}
+
+/**
+ * 数据库操作重试包装器：专门应对"云数据库空闲休眠后被拒绝连接"的场景。
+ * @param {Function} fn 执行的异步函数
+ * @param {object} opts { times, waitMs, onRetry }
+ */
+async function withDbRetry(fn, opts = {}) {
+  const times = opts.times || 3;
+  const waitMs = opts.waitMs || 5000;
+  let lastErr;
+  for (let attempt = 1; attempt <= times; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientDbError(e) || attempt === times) throw e;
+      const msg = `数据库连接中断（${e.message}），${Math.round(waitMs / 1000)}s 后第 ${attempt + 1} 次重试...`;
+      if (opts.onRetry) opts.onRetry(msg);
+      console.warn(`[SYNC] ${msg}`);
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastErr;
+}
+
 /** 是否把公网海报下载到本地（默认否：直连源站图片，随源站同步更新） */
 const DOWNLOAD_IMAGES = config.sync.downloadImages;
 
@@ -147,7 +177,17 @@ async function syncShows(opts = {}) {
   let updated = 0;
   let posterUpdated = 0;
 
-  await transaction(async (conn) => {
+  // ============ 云数据库休眠兼容 ============
+  // 抓取阶段可能持续十几分钟且完全不访问数据库（Railway 等平台的 MySQL 空闲会自动休眠），
+  // 写入前先探测并唤醒数据库，再对整段写入做断连重试，避免 "抓到了却写不进去"。
+  onProgress(`数据抓取完毕，准备写入数据库（正在探测数据库连接...）`);
+  await withDbRetry(async () => {
+    await query('SELECT 1');
+  }, { times: 18, waitMs: 5000, onRetry: (m) => onProgress(m) });
+  onProgress(`数据库连接正常，开始写入 ${items.length} 条演出数据...`);
+
+  await withDbRetry(async () => {
+    await transaction(async (conn) => {
     for (const item of items) {
       if (!item.title || !item.startTime) continue;
 
@@ -217,7 +257,8 @@ async function syncShows(opts = {}) {
       // 公网数据源不返回票档，这里按价格区间自动生成官方票档，保证可正常下单
       await ensureTiers(conn, id, item);
     }
-  });
+    });
+  }, { times: 4, waitMs: 8000, onRetry: (m) => onProgress(m) });
 
   const result = {
     source: sourceLabel,
