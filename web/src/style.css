@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================= 全局基础样式 ================= */
+html,
+body,
+#app {
+  min-height: 100%;
+}
+body {
+  @apply bg-ink-50 text-ink-900 antialiased;
+  /* 移动端点击高亮去除 */
+  -webkit-tap-highlight-color: transparent;
+}
+/* 桌面端内容居中，移动端满宽 */
+.app-shell {
+  @apply mx-auto w-full;
+  max-width: 1440px;
+}
+
+@layer components {
+  /* 卡片 */
+  .card {
+    @apply rounded-xl2 bg-white shadow-card;
+  }
+  /* 主按钮 */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition active:scale-[0.98];
+  }
+  .btn-primary {
+    @apply btn bg-brand-500 text-white hover:bg-brand-600;
+  }
+  .btn-ghost {
+    @apply btn border border-ink-100 bg-white text-ink-700 hover:bg-ink-50;
+  }
+  .btn-dark {
+    @apply btn bg-ink-900 text-white hover:bg-ink-700;
+  }
+  /* 标签 */
+  .tag {
+    @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] leading-4;
+  }
+  /* 表单控件 */
+  .input {
+    @apply w-full rounded-lg border border-ink-100 bg-ink-50 px-3 py-2.5 text-sm outline-none transition
+           placeholder:text-ink-300 focus:border-brand-400 focus:bg-white;
+  }
+  /* 骨架屏 */
+  .skeleton {
+    @apply rounded-md bg-ink-100;
+    background-image: linear-gradient(90deg, #e6e6ec 25%, #f2f2f6 37%, #e6e6ec 63%);
+    background-size: 800px 100%;
+    @apply animate-shimmer;
+  }
+  /* 安全区（iPhone 底部） */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* 移动端底部操作栏：悬于底部 TabBar 之上（Tab 高约 50px + iPhone 安全区），桌面端可被 md:static 覆盖。
+     注意：不要在此使用 backdrop-filter（毛玻璃）——iOS Safari / 部分 WebView 中
+     position:fixed + backdrop-filter 会导致点击区域错位、按钮“看得见点不动”。故用实色背景。 */
+  .action-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(50px + env(safe-area-inset-bottom, 0px));
+    z-index: 60;
+    background: #ffffff;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+  }
+  /* 渐变主色 */
+  .bg-brand-gradient {
+    background-image: linear-gradient(135deg, #ff3a6a 0%, #ff7a45 100%);
+  }
+  .bg-accent-gradient {
+    background-image: linear-gradient(135deg, #7c5cff 0%, #ff5c7c 100%);
+  }
+  /* 文字省略 */
+  .line-1 {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap;
+  }
+  .line-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* 隐藏滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 路由过渡 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
