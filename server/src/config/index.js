@@ -3,6 +3,15 @@
  */
 require('dotenv').config();
 
+// 启动诊断：打印最终生效的数据库连接目标（不含密码），便于云环境排查变量注入
+console.log(
+  `[BOOT] DB -> host=${process.env.DB_HOST || process.env.MYSQL_HOST || process.env.MYSQLHOST || '(未设置,回退127.0.0.1)'} ` +
+  `port=${process.env.DB_PORT || process.env.MYSQL_PORT || process.env.MYSQLPORT || '(未设置)'} ` +
+  `user=${process.env.DB_USER || process.env.MYSQL_USER || process.env.MYSQLUSER || '(未设置)'} ` +
+  `db=${process.env.DB_NAME || process.env.MYSQL_DATABASE || process.env.MYSQLDATABASE || '(未设置)'} ` +
+  `password=${process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || process.env.MYSQLPASSWORD ? '已设置' : '(未设置)'}`
+);
+
 module.exports = {
   port: Number(process.env.PORT || 3001),
   env: process.env.NODE_ENV || 'development',
