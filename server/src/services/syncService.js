@@ -184,11 +184,19 @@ async function syncShows(opts = {}) {
   await withDbRetry(async () => {
     await query('SELECT 1');
   }, { times: 18, waitMs: 5000, onRetry: (m) => onProgress(m) });
-  onProgress(`数据库连接正常，开始写入 ${items.length} 条演出数据...`);
+  onProgress(`数据库连接正常，开始分批写入 ${items.length} 条演出数据...`);
 
-  await withDbRetry(async () => {
-    await transaction(async (conn) => {
-    for (const item of items) {
+  // ============ 分批写入 ============
+  // 一次性用单个大事务写入上千场演出会导致容器内存超限被杀（云平台常见限制），
+  // 因此按 CHUNK_SIZE 分批提交：内存可控、每批都是新连接（顺带保持数据库活跃）、
+  // 中途失败也不会整体回滚导致前功尽弃。
+  const CHUNK_SIZE = 50;
+  for (let start = 0; start < items.length; start += CHUNK_SIZE) {
+    const chunk = items.slice(start, start + CHUNK_SIZE);
+
+    await withDbRetry(async () => {
+      await transaction(async (conn) => {
+    for (const item of chunk) {
       if (!item.title || !item.startTime) continue;
 
       // 去重：优先外部 sourceId，其次 标题 + 开演时间
@@ -257,8 +265,14 @@ async function syncShows(opts = {}) {
       // 公网数据源不返回票档，这里按价格区间自动生成官方票档，保证可正常下单
       await ensureTiers(conn, id, item);
     }
+      }, { times: 4, waitMs: 8000, onRetry: (m) => onProgress(m) });
     });
-  }, { times: 4, waitMs: 8000, onRetry: (m) => onProgress(m) });
+
+    const doneCount = Math.min(start + CHUNK_SIZE, items.length);
+    onProgress(`写入进度 ${doneCount}/${items.length}（新增 ${created} / 更新 ${updated}）`);
+    // 每批之间让出事件循环，避免长时间占用 CPU 被平台限流
+    await new Promise((r) => setTimeout(r, 100));
+  }
 
   const result = {
     source: sourceLabel,
