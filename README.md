@@ -1,3 +1,12 @@
+---
+title: 演出票务平台
+emoji: 🎫
+colorFrom: pink
+colorTo: purple
+sdk: docker
+app_port: 7860
+---
+
 # 🎫 演出票务平台（移动端优先 · 全端自适应）
 
 > 参考 m.piaoxiao2.com 移动端版式：卡片式布局、分类导航、轮播、榜单、骨架屏、下拉刷新。  
