@@ -10,13 +10,13 @@ module.exports = {
   corsOrigin: (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim()),
 
   // MySQL
-  // 优先读 DB_*；Railway 的 MySQL 插件会自动注入 MYSQL_* 变量，无需手动映射
+  // 优先读 DB_*；Railway MySQL 服务注入的是无下划线变量（MYSQLHOST/MYSQLPORT/...），一并兼容
   db: {
-    host: process.env.DB_HOST || process.env.MYSQL_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3306),
-    user: process.env.DB_USER || process.env.MYSQL_USER || 'root',
-    password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '',
-    database: process.env.DB_NAME || process.env.MYSQL_DATABASE || 'show_ticket',
+    host: process.env.DB_HOST || process.env.MYSQL_HOST || process.env.MYSQLHOST || '127.0.0.1',
+    port: Number(process.env.DB_PORT || process.env.MYSQL_PORT || process.env.MYSQLPORT || 3306),
+    user: process.env.DB_USER || process.env.MYSQL_USER || process.env.MYSQLUSER || 'root',
+    password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || process.env.MYSQLPASSWORD || '',
+    database: process.env.DB_NAME || process.env.MYSQL_DATABASE || process.env.MYSQLDATABASE || 'show_ticket',
     // 连接池配置
     waitForConnections: true,
     connectionLimit: 10,
