@@ -24,10 +24,22 @@ async function main() {
   await root.end();
 
   // 2) 执行建表 SQL
+  // ⚠️ 云平台（Railway 等）每次重新部署/容器重启都会执行本脚本，
+  //    schema.sql 里带有 DROP TABLE IF EXISTS，若直接全量执行会清空所有真实数据。
+  //    因此这里做幂等保护：核心业务表已存在时跳过建表，仅在首次空库时执行 schema。
   const conn = await mysql.createConnection({ host, port, user, password, database, multipleStatements: true });
-  const sql = fs.readFileSync(SCHEMA_PATH, 'utf8');
-  await conn.query(sql);
-  console.log('✅ 数据表已创建');
+  const [coreTables] = await conn.query(
+    'SELECT COUNT(1) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?, ?, ?)',
+    [database, 'users', 'shows', 'ticket_tiers']
+  );
+  const initialized = coreTables[0] && Number(coreTables[0].c) === 3;
+  if (!initialized) {
+    const sql = fs.readFileSync(SCHEMA_PATH, 'utf8');
+    await conn.query(sql);
+    console.log('✅ 数据表已创建（首次初始化）');
+  } else {
+    console.log('ℹ️  数据表已存在，跳过建表以免清空已有数据');
+  }
 
   // 3) 管理员账号
   const adminPhone = '13800000000';
