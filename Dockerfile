@@ -20,6 +20,8 @@ WORKDIR /app/server
 COPY server/package.json server/package-lock.json* ./
 RUN npm install --omit=dev
 COPY server/ ./
+# 数据库初始化脚本（initDb 启动时需要 database/schema.sql）
+COPY database/ /app/database/
 # 前端构建产物放到后端期望的路径（server/src -> ../../web/dist）
 COPY --from=web /app/web/dist /app/web/dist
 # 海报输出目录（纯 SVG，无原生依赖）
