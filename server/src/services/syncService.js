@@ -129,50 +129,21 @@ async function fetchPublicSource(onProgress) {
   return await maoyan.fetchShows({ cityNames, pages, pageSize, withDetail, onProgress });
 }
 
-/* ============================ 主流程 ============================ */
+/* ============================ 写入数据库 ============================ */
 
 /**
- * 执行一次同步
- * @param {object} opts { onProgress }
+ * 把一批演出数据写入数据库（唤醒探测 + 分批事务 + 断连重试）
+ * 云平台（Railway 等）容器内存通常很小，必须小批量提交，
+ * 并由调用方在写完后立即释放数组引用以控制内存峰值。
+ * @param {Array} items 待写入的演出数据
+ * @param {string} sourceLabel 数据来源标识
+ * @param {Function} onProgress 进度回调
+ * @param {string} label 进度提示前缀（如城市名）
+ * @returns {{created:number, updated:number, posterUpdated:number}}
  */
-async function syncShows(opts = {}) {
-  const startedAt = new Date();
-  const onProgress = opts.onProgress || ((m) => console.log(`[SYNC] ${m}`));
-  let items = [];
-  let sourceLabel = maoyan.SOURCE_NAME;
-
-  try {
-    // 1) 默认：公网真实数据源
-    try {
-      const publicItems = await fetchPublicSource(onProgress);
-      items = items.concat(publicItems);
-      onProgress(`公网数据源获取 ${publicItems.length} 条`);
-    } catch (e) {
-      onProgress(`公网数据源拉取失败：${e.message}`);
-      throw e; // 公网数据源是主数据源，失败即认为本次同步失败
-    }
-
-    // 2) 可选：自定义数据源（配置了才跑）
-    try {
-      const customItems = await fetchCustomSource();
-      if (customItems.length) {
-        items = items.concat(customItems);
-        sourceLabel += '+api';
-        onProgress(`自定义数据源获取 ${customItems.length} 条`);
-      }
-    } catch (e) {
-      onProgress(`自定义数据源拉取失败（已忽略）：${e.message}`);
-    }
-
-    if (!items.length) throw new Error('数据源未返回有效演出数据');
-  } catch (e) {
-    await recordLog({
-      source: sourceLabel, status: 0, total: 0, created: 0, updated: 0,
-      message: e.message, startedAt,
-    });
-    throw e;
-  }
-
+async function persistItems(items, sourceLabel, onProgress, label = '') {
+  const tag = label ? `【${label}】` : '';
+  // 本函数的循环体沿用自原 syncShows 的写入逻辑（分批事务 + 断连重试）
   let created = 0;
   let updated = 0;
   let posterUpdated = 0;
@@ -269,22 +240,93 @@ async function syncShows(opts = {}) {
     });
 
     const doneCount = Math.min(start + CHUNK_SIZE, items.length);
-    onProgress(`写入进度 ${doneCount}/${items.length}（新增 ${created} / 更新 ${updated}）`);
+    onProgress(`${tag}写入进度 ${doneCount}/${items.length}（新增 ${created} / 更新 ${updated}）`);
     // 每批之间让出事件循环，避免长时间占用 CPU 被平台限流
     await new Promise((r) => setTimeout(r, 100));
   }
 
+
+
+  return { created, updated, posterUpdated };
+}
+
+/* ============================ 主流程 ============================ */
+
+/**
+ * 执行一次同步
+ * @param {object} opts { onProgress }
+ */
+async function syncShows(opts = {}) {
+  const startedAt = new Date();
+  const onProgress = opts.onProgress || ((m) => console.log(`[SYNC] ${m}`));
+  let sourceLabel = maoyan.SOURCE_NAME;
+
+  // 计数器：跨所有批次累计（逐城市抓取、逐城市落库）
+  const counters = { created: 0, updated: 0, posterUpdated: 0, total: 0 };
+  const acc = (r, n) => {
+    counters.created += r.created;
+    counters.updated += r.updated;
+    counters.posterUpdated += r.posterUpdated;
+    counters.total += n;
+  };
+
+  try {
+    // 1) 可选：自定义数据源（配置了才跑），数据量小，一次性写入
+    try {
+      const customItems = await fetchCustomSource();
+      if (customItems.length) {
+        sourceLabel += '+api';
+        onProgress(`自定义数据源获取 ${customItems.length} 条`);
+        acc(await persistItems(customItems, sourceLabel, onProgress, '自定义源'), customItems.length);
+      }
+    } catch (e) {
+      onProgress(`自定义数据源拉取失败（已忽略）：${e.message}`);
+    }
+
+    // 2) 公网真实数据源：
+    // 逐城市抓取并立即落库 + 释放引用，避免一次性堆积上千条把容器内存撑爆（云平台常见限制）
+    const cityNames = await resolveSyncCities();
+    const pageSize = config.sync.pageSize;
+    const pages = config.sync.pages;
+    const withDetail = config.sync.withDetail;
+    onProgress(`公网同步目标城市：${cityNames.join('、')}`);
+
+    for (const city of cityNames) {
+      let cityItems = [];
+      try {
+        cityItems = await maoyan.fetchShows({ cityNames: [city], pages, pageSize, withDetail, onProgress });
+      } catch (e) {
+        onProgress(`「${city}」抓取失败：${e.message}`);
+        continue;
+      }
+      if (!cityItems.length) {
+        onProgress(`「${city}」未取到数据，跳过`);
+        continue;
+      }
+      acc(await persistItems(cityItems, sourceLabel, onProgress, city), cityItems.length);
+      cityItems.length = 0; // 立即释放引用，控制内存峰值
+    }
+
+    if (!counters.total) throw new Error('数据源未返回有效演出数据');
+  } catch (e) {
+    await recordLog({
+      source: sourceLabel, status: 0, total: 0, created: 0, updated: 0,
+      message: e.message, startedAt,
+    });
+    throw e;
+  }
+
   const result = {
     source: sourceLabel,
-    total: items.length,
-    created,
-    updated,
-    posterUpdated,
+    total: counters.total,
+    created: counters.created,
+    updated: counters.updated,
+    posterUpdated: counters.posterUpdated,
     startedAt,
     finishedAt: new Date(),
   };
   await recordLog({ ...result, status: 1, message: '同步成功' });
-  onProgress(`同步完成：新增 ${created} / 更新 ${updated} / 图片更新 ${posterUpdated} / 共 ${items.length} 条`);
+  onProgress(`同步完成：新增 ${counters.created} / 更新 ${counters.updated} / 图片更新 ${counters.posterUpdated} / 共 ${counters.total} 条`);
   return result;
 }
 
