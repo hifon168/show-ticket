@@ -14,11 +14,27 @@ const { generatePoster } = require('../services/posterService');
 
 const SCHEMA_PATH = path.join(__dirname, '../../../database/schema.sql');
 
+// 连接重试：Railway/云平台的数据库插件在容器启动时可能尚未就绪，
+// 直接退出会导致建表/迁移（如 orders.seats）被跳过。这里等待就绪再继续。
+async function connectWithRetry(opts, retries = 15, delayMs = 4000) {
+  let lastErr;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await mysql.createConnection(opts);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`⏳ 数据库连接失败(${i + 1}/${retries})，${delayMs / 1000}s 后重试: ${e.code || e.message}`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
   const { host, port, user, password, database } = config.db;
 
   // 1) 先连不上具体库，创建数据库
-  const root = await mysql.createConnection({ host, port, user, password, multipleStatements: true });
+  const root = await connectWithRetry({ host, port, user, password, multipleStatements: true });
   await root.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_general_ci;`);
   console.log(`✅ 数据库 \`${database}\` 已就绪`);
   await root.end();
@@ -27,7 +43,7 @@ async function main() {
   // ⚠️ 云平台（Railway 等）每次重新部署/容器重启都会执行本脚本，
   //    schema.sql 里带有 DROP TABLE IF EXISTS，若直接全量执行会清空所有真实数据。
   //    因此这里做幂等保护：核心业务表已存在时跳过建表，仅在首次空库时执行 schema。
-  const conn = await mysql.createConnection({ host, port, user, password, database, multipleStatements: true });
+  const conn = await connectWithRetry({ host, port, user, password, database, multipleStatements: true });
   const [coreTables] = await conn.query(
     'SELECT COUNT(1) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?, ?, ?)',
     [database, 'users', 'shows', 'ticket_tiers']
