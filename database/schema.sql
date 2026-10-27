@@ -157,6 +157,8 @@ CREATE TABLE `orders` (
   `pay_method`    VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'wechat/alipay/balance',
   `pay_no`        VARCHAR(60)  NOT NULL DEFAULT '' COMMENT '支付流水号',
   `remark`        VARCHAR(255) NOT NULL DEFAULT '',
+  `seats`         TEXT         COMMENT '选座明细JSON：{sessionDate,items:[{seatNo,area,price,tierId}]}',
+  `session_date`  VARCHAR(20)  NOT NULL DEFAULT '' COMMENT '所选场次日期',
   `paid_at`       DATETIME     NULL,
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

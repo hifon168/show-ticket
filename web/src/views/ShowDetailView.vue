@@ -102,6 +102,14 @@
           <!-- 演出介绍 -->
           <div class="mt-4">
             <h3 class="mb-2 text-sm font-semibold">演出介绍</h3>
+            <div class="mb-3 overflow-hidden rounded-xl2">
+              <AppImage
+                :src="show.poster"
+                :text="show.title"
+                img-class="h-48 w-full object-cover md:h-60"
+                placeholder-class="text-4xl"
+              />
+            </div>
             <p class="whitespace-pre-line text-sm leading-6 text-ink-700">{{ show.description || '暂无简介' }}</p>
           </div>
 
@@ -179,11 +187,7 @@ async function toggleFav() {
 
 function buy() {
   if (!user.isLogin) return router.push('/login?redirect=' + route.fullPath);
-  if (!selectedTier.value) return window.$toast && window.$toast('请选择票档');
-  router.push({
-    path: '/confirm',
-    query: { showId: show.value.id, tierId: selectedTier.value.id, qty: qty.value },
-  });
+  router.push({ path: '/seat-select', query: { showId: show.value.id } });
 }
 
 onMounted(load);

@@ -145,6 +145,25 @@ async function main() {
     console.log('✅ 已写入首页轮播');
   }
 
+  // 6) 字段迁移：确保 orders 表含 seats / session_date（老库升级，已存在则跳过）
+  try {
+    const [cols] = await conn.query(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'orders' AND COLUMN_NAME IN ('seats','session_date')",
+      [database]
+    );
+    const exists = new Set(cols.map((c) => c.COLUMN_NAME));
+    if (!exists.has('seats')) {
+      await conn.query("ALTER TABLE orders ADD COLUMN seats TEXT COMMENT '选座明细JSON'");
+      console.log('✅ orders 已新增 seats 字段');
+    }
+    if (!exists.has('session_date')) {
+      await conn.query("ALTER TABLE orders ADD COLUMN session_date VARCHAR(20) NOT NULL DEFAULT '' COMMENT '所选场次日期'");
+      console.log('✅ orders 已新增 session_date 字段');
+    }
+  } catch (e) {
+    console.warn('⚠️  orders 字段迁移跳过：', e.message);
+  }
+
   await conn.end();
   console.log('\n🎉 初始化完成！默认管理员：13800000000 / admin123');
   console.log('   演示邀请码：VIP88888 / TICKET66 / WELCOME1 / PX2026VIP / TEST0001\n');

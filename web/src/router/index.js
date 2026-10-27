@@ -8,6 +8,7 @@ const routes = [
   { path: '/shows', name: 'shows', component: () => import('@/views/ShowListView.vue') },
   { path: '/show/:id', name: 'show-detail', component: () => import('@/views/ShowDetailView.vue') },
   { path: '/confirm', name: 'order-confirm', component: () => import('@/views/OrderConfirmView.vue'), meta: { auth: true } },
+  { path: '/seat-select', name: 'seat-select', component: () => import('@/views/SeatSelectView.vue'), meta: { auth: true } },
   { path: '/pay/:id', name: 'pay', component: () => import('@/views/PaymentView.vue'), meta: { auth: true } },
   { path: '/orders', name: 'orders', component: () => import('@/views/OrderListView.vue'), meta: { auth: true } },
   { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetailView.vue'), meta: { auth: true } },

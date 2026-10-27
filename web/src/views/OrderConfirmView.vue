@@ -13,7 +13,7 @@
         <div class="card p-3">
           <div class="flex gap-3">
             <div
-              class="flex h-[92px] w-[68px] shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-400 to-accent text-xl font-bold text-white"
+              class="flex h-[92px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand-400 to-accent text-xl font-bold text-white"
             >
               <AppImage
                 :src="item.poster"
@@ -29,7 +29,20 @@
               <p class="text-xs text-ink-500">🕒 {{ item.time }}</p>
             </div>
           </div>
-          <div class="mt-3 flex items-center justify-between border-t border-ink-50 pt-3">
+
+          <!-- 已选座位 -->
+          <div v-if="seatsMode" class="mt-3 border-t border-ink-50 pt-3">
+            <p class="mb-1 text-sm text-ink-500">已选座位（{{ seats.length }}）</p>
+            <div class="space-y-1">
+              <div v-for="(s, i) in seats" :key="i" class="flex justify-between text-sm">
+                <span>{{ s.seatNo }} · <span class="text-ink-500">{{ s.area }}</span></span>
+                <span class="font-medium text-brand-500">¥{{ s.price }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 数量（非选座模式） -->
+          <div v-else class="mt-3 flex items-center justify-between border-t border-ink-50 pt-3">
             <span class="text-sm text-ink-500">购买数量</span>
             <div class="flex items-center gap-2">
               <button class="h-7 w-7 rounded-full bg-ink-100" @click="qty = Math.max(1, qty - 1)">-</button>
@@ -52,12 +65,20 @@
 
         <!-- ============ 金额明细 ============ -->
         <div class="card mt-3 p-3 text-sm">
-          <div class="flex justify-between py-1">
-            <span class="text-ink-500">单价</span><span>¥{{ unitPrice }}</span>
-          </div>
-          <div class="flex justify-between py-1">
-            <span class="text-ink-500">数量</span><span>× {{ qty }}</span>
-          </div>
+          <template v-if="seatsMode">
+            <div v-for="(s, i) in seats" :key="i" class="flex justify-between py-1">
+              <span class="text-ink-500">{{ s.seatNo }} <span class="text-ink-300">{{ s.area }}</span></span>
+              <span>¥{{ s.price }}</span>
+            </div>
+          </template>
+          <template v-else>
+            <div class="flex justify-between py-1">
+              <span class="text-ink-500">单价</span><span>¥{{ unitPrice }}</span>
+            </div>
+            <div class="flex justify-between py-1">
+              <span class="text-ink-500">数量</span><span>× {{ qty }}</span>
+            </div>
+          </template>
           <div class="mt-2 flex justify-between border-t border-ink-50 pt-2 text-base">
             <span class="font-semibold">应付总额</span>
             <span class="font-bold text-brand-500">¥{{ amount }}</span>
@@ -105,6 +126,21 @@ const maxQty = ref(6);
 const unitPrice = ref(0);
 const item = ref({});
 
+const seatsMode = ref(false);
+const seats = ref([]);
+const sessionDate = ref('');
+
+/** 下单来源：选座 seats、官方票档 showId+tierId、或二手票 ticketId */
+const showId = Number(route.query.showId || 0);
+const tierId = Number(route.query.tierId || 0);
+const ticketId = Number(route.query.ticketId || 0);
+
+const amount = computed(() =>
+  seatsMode.value
+    ? seats.value.reduce((a, b) => a + Number(b.price || 0), 0).toFixed(2)
+    : (Number(unitPrice.value) * qty.value).toFixed(2)
+);
+
 const form = reactive({
   buyerName: user.userInfo?.nickname || '',
   contactName: user.userInfo?.nickname || '',
@@ -112,17 +148,26 @@ const form = reactive({
   remark: '',
 });
 
-/** 下单来源：官方票档 showId+tierId，或二手票 ticketId */
-const showId = Number(route.query.showId || 0);
-const tierId = Number(route.query.tierId || 0);
-const ticketId = Number(route.query.ticketId || 0);
-
-const amount = computed(() => (Number(unitPrice.value) * qty.value).toFixed(2));
-
 async function load() {
   loading.value = true;
   try {
-    if (ticketId) {
+    if (route.query.seats) {
+      // 选座模式
+      seatsMode.value = true;
+      try { seats.value = JSON.parse(decodeURIComponent(route.query.seats)); } catch { seats.value = []; }
+      sessionDate.value = route.query.sessionDate || '';
+      const s = await showApi.detail(showId);
+      unitPrice.value = seats.value.length ? seats.value[0].price : 0;
+      qty.value = seats.value.length;
+      item.value = {
+        title: s.title,
+        poster: s.poster,
+        city: s.city,
+        venue: s.venue_name,
+        time: sessionDate.value || formatDate(s.start_time),
+        tierLabel: `在线选座 ${seats.value.length} 张`,
+      };
+    } else if (ticketId) {
       // 二手票
       const t = await ticketApi.detail(ticketId);
       unitPrice.value = Number(t.sell_price);
@@ -158,15 +203,18 @@ async function load() {
 async function submit() {
   if (!form.buyerName) return window.$toast('请填写买方姓名');
   if (!/^1[3-9]\d{9}$/.test(form.contactPhone)) return window.$toast('请填写正确手机号');
-  // 未填取票联系人时默认用买方姓名
   if (!form.contactName) form.contactName = form.buyerName;
 
   submitting.value = true;
   try {
     const payload = { quantity: qty.value, ...form };
-    if (ticketId) payload.ticketId = ticketId;
-    else Object.assign(payload, { showId, tierId });
-
+    if (seatsMode.value) {
+      Object.assign(payload, { showId, seats: seats.value, sessionDate: sessionDate.value });
+    } else if (ticketId) {
+      payload.ticketId = ticketId;
+    } else {
+      Object.assign(payload, { showId, tierId });
+    }
     const order = await orderApi.create(payload);
     window.$toast('下单成功');
     router.replace(`/pay/${order.id}`);
